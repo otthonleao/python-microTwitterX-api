@@ -200,7 +200,7 @@ pip install -e .
 `````
 Para verificar se o entry_point está funcionando como um comando no terminal pode verificar no VSCode > Preferencias > Python: Select Interpreter
 
-### Docker
+## Execução no Docker
 No `dockerfile.dev` vamos escrever a imagem do container do projeto que será inicializado.
 ````docker
 # Build the app image
@@ -233,3 +233,80 @@ No terminal buildamos o container, no mesmo caminho do arquivo `Dockerfile.dev` 
 $ docker build -f Dockerfile.dev -t microtwitterx:latest .
 $ docker run --rm -it -v $(pwd):/home/app/api -p 8000:8000 microtwitterx
 ```
+Após iniciar o container acesse: http://0.0.0.0:8000/docs ou http://0.0.0.0:8000/redoc para te acesso a documentação
+
+### Rodando o database em um container
+Vamos utilizar o Postgres como banco de dados dentro de um container.
+Para isso usaremos o script de inicialização abaixo no arquivo `postgres/create-database.sh` que vai ser executado quando o Postgres startar teremos certeza de que o banco de dados está criado.
+````bash
+#!/bin/bash
+
+set -e
+set -u
+
+function create_user_and_database() {
+	local database=$1
+	echo "Creating user and database '$database'"
+	psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
+	    CREATE USER $database PASSWORD '$database';
+	    CREATE DATABASE $database;
+	    GRANT ALL PRIVILEGES ON DATABASE $database TO $database;
+EOSQL
+}
+
+if [ -n "$POSTGRES_DBS" ]; then
+	echo "Creating DB(s): $POSTGRES_DBS"
+	for db in $(echo $POSTGRES_DBS | tr ',' ' '); do
+		create_user_and_database $db
+	done
+	echo "Multiple databases created"
+fi
+````
+Para rodar o SGDB Postgres crie uma imagem com o seguinte spript no arquivo `postgres/Dockerfile`
+````
+FROM postgres:alpine3.14
+COPY create-databases.sh /docker-entrypoint-initdb.d/
+````
+### Docker-Compose
+Para iniciar a API + o Banco de dados precisaremos de um orquestrador de containers, em produção isso será feito com Kubernetes mas no ambiente de desenvolvimento podemos usar o docker compose.
+
+Edite o arquivo `docker-compose.yaml`
+
+- Definimos 2 serviços `api` e `db`
+- Informamos os parametros de build com os dockerfiles
+- Na `api` abrimos a porta `8000`
+- Na `api` passamos 2 variáveis de ambiente `MICROTWITTERX_DB__uri` e `MICROTWITTERX_DB_connect_args` para usarmos na conexão com o DB
+- Marcamos que a `api` depende do `db` para iniciar.
+- No `db` informamos o setup básico do postgres e pedimos para criar 2 bancos de dados, um para a app e um para testes.
+````docker
+version: '3.9'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    environment:
+      MICROTWITTERX_DB__uri: "postgresql://postgres:postgres@db:5432/${MICROTWITTERX_DB:-microtwitterx}"
+      MICROTWITTERX_DB__connect_args: "{}"
+    volumes:
+      - .:/home/app/api
+    depends_on:
+      - db
+    stdin_open: true
+    tty: true
+  db:
+    build: postgres
+    image: microtwitterx_postgres-13-alpine-multi-user
+    volumes:
+      - $HOME/.postgres/microtwitterx_db/data/postgresql:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DBS=microtwitterx, microtwitterx_test
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+````
+Agora usamos o `$ docker-compose build` para compilar e depois `$ docker-compose up` para iniciar os dois conteners e deixar o terminal aberto para visualizar os logs.
