@@ -78,3 +78,76 @@ engine = create_engine(
 )
 ````
 Criamos um objeto engine que aponta para uma conexão com o banco de dados e para isso usamos as variáveis que lemos do settings.
+
+## Database Migrations
+Precisamos garantir que a estrtura da tabela exista dentro do banco de dados e para isso é utilizado a biblioteca `alembic` que gerencia as migrações, ou seja, gerando as SQL que alteram a estrtura das tabelas.
+
+Na raiz do repositório utilizamos o `$ alembic init migrations` que criará um arquivo chamado `alembic.ini`e uma pasta chamada `migrations` que armazenará o histórico das alterações no banco de dados.
+
+Para o migrations ser compatível com o `alembic` precisamos editar no `migrations/env.py` as seguintes instruções:
+````python
+# No topo do arquivo adicionamos a importação dos models 
+from microtwitterx import models
+from microtwitterx.db import engine
+from microtwitterx.config import settings
+
+# Perto da linha 23 mudamos de
+# target_metadata = None
+# para
+target_metadata = models.SQLModel.metadata
+
+# Na função `run_migrations_offline()` mudamos
+# url = config.get_main_option("sqlalchemy.url")
+# para
+url = settings.db.uri
+
+# Na função `run_migration_online` mudamos
+# connectable = engine_from_config...
+# para
+connectable = engine
+````
+Agora precisamos fazer só mais um ajuste edite `migrations/script.py.mako` e em torno da linha 10 adicione
+````py
+#from alembic import op
+#import sqlalchemy as sa
+import sqlmodel  # linha NOVA
+````
+Agora podemos começar a usar o alembic para gerenciar as migrations, mas precisamos executar este comando dentro do container portando execute no terminal:
+````bash
+$ docker compose exec api /bin/bash
+app@c5dd026e8f92:~/api$ # este é o shell dentro do container
+````
+E dentro do container rode o alembic (que é uma espécie de git para database), para "iniciar" a comparação do banco com as classes.
+````
+$ alembic revision --autogenerate -m "initial"
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.autogenerate.compare] Detected added table 'user'
+  Generating /home/app/api/migrations/versions/ee59b23815d3_initial.py ...  done
+````
+O alembic identifica o model User e gera uma migration inicial que fará a criação desta tabela no banco de dados.
+
+Podemos aplicar a migration rodando dentro do container:
+````bash
+$ alembic upgrade head
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> ee59b23815d3, initial
+````
+E neste momento a tabela será criada no Postgres, podemos verificar se está funcionando ainda dentro do container:
+````
+$ ipython
+>>>
+````
+Digite
+````
+from sqlmodel import Session, select
+from microtwitterx.db import engine
+from microtwitterx.models import User
+
+with Session(engine) as session:
+    print(list(session.exec(select(User))))
+````
+O resultado será uma lista vazia [] indicando que ainda não temos nenhum usuário no banco de dados.
+
+Foi preciso muito boilerplate para conseguir se conectar ao banco de dados para facilitar a nossa vida vamos adicionar uma aplicação cli onde vamos poder executar tarefas administrativas no shell.
