@@ -1,4 +1,5 @@
 import typer
+
 from rich.console import Console
 from rich.table import Table
 from sqlmodel import Session, select
@@ -11,7 +12,7 @@ main = typer.Typer(name="Micro Twitter/X CLI")
 
 @main.command()
 def shell():
-    """Opens interactive shell"""
+    """Abrir microtwitterx shell interativo"""
     _vars = {
         "settings": settings,
         "engine": engine,
@@ -31,9 +32,11 @@ def shell():
 
         code.InteractiveConsole(_vars).interact()
 
+
+# Listar Usuários
 @main.command()
 def user_list():
-    """Lists all users"""
+    """Lista todos os usuários"""
     table = Table(title="Micro Twitter/X - Users")
     fields = ["username", "email"]
     for header in fields:
@@ -45,3 +48,15 @@ def user_list():
             table.add_row(user.username, user.email)
 
     Console().print(table)
+
+# Criar Usuário
+@main.command()
+def create_user(email: str, username: str, password: str):
+    """Criar um usuário"""
+    with Session(engine) as session:
+        user = User(email=email, username=username, password=password)
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        typer.echo(f"created {username} user")
+        return user
