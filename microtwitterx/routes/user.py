@@ -32,8 +32,8 @@ async def get_user_by_username(
 @router.post("/", response_model=UserResponse, status_code=201)
 async def create_user(*, session: Session = ActiveSession, user: UserRequest):
     """Creates new user"""
-    import ipdb; ipdb.set_trace()
-    db_user = User.model_validate(user)  # transform UserRequest in User
+    # import ipdb; ipdb.set_trace()
+    db_user = User(**user.model_dump())  # transform UserRequest in User
     session.add(db_user)
     session.commit()
     session.refresh(db_user)
